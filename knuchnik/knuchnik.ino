@@ -31,6 +31,12 @@
 #include "MPU6050.h"
 #include <AESLib.h>
 
+// --- networking libraries ---
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+
+
 // --- Pin Definitions ---
 #define BUTTON_UP     13
 #define BUTTON_DOWN   12
@@ -44,6 +50,10 @@ const int counterPins[8] = {4, 5, 15, 16, 17, 18, 19, 23};
 #define SCREEN_HEIGHT 32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 MPU6050 mpu;
+
+// --- TCP and networking ---
+#define WEBSERVER_PORT 80
+WiFiServer server(WEBSERVER_PORT);
 
 // --- Main Menu Configuration ---
 const int MENU_ITEMS_COUNT = 4;
@@ -80,6 +90,12 @@ const char* complexityNames[] = {
 uint8_t encryptionKey[] = {0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C};
 byte generatedKey[16];
 
+// --- Networking config ---
+const char* ap_ssid = "Kluchnik";
+const char* ap_password = "password";
+
+
+
 /*========================================================================*/
 /* SETUP                                                                  */
 /*========================================================================*/
@@ -114,6 +130,8 @@ void setup() {
     for (;;);
   }
 
+  wifiInitAP();
+
   display.clearDisplay();
   display.display();
 }
@@ -124,6 +142,7 @@ void setup() {
 void loop() {
   handleInput();
   drawMenu();
+
 }
 
 /*========================================================================*/
@@ -403,4 +422,84 @@ void displayAbout() {
     display.display();
   }
   delay(200);
+}
+
+
+
+/* TODO *
+ * Make interface from SD card to ESP
+ * Read specific files (plaintext?):
+   - Wifi password file
+   - User's symmetric AES key
+   - password keys (encrypted with user's AES key)
+ * TCP interface
+   - ESP creates a hotspot point (no security)
+   - user connects to point
+   - ESP sends data through TCP
+ */
+
+void wifiInitAP()
+{
+  // Create AP, assign SSID, passwd and IP
+  WiFi.softAP(ap_ssid, ap_password);
+  IPAddress IP = WiFi.softAPIP();
+
+  Serial.print("AP IP addr: "); /* testing */
+  Serial.println(IP);
+
+  server.begin();
+}
+
+void wifiListenForClient()
+{
+  WiFiClient client = server.available();
+
+  if (client) { // On connection of a client
+    Serial.println("Client connected");
+    String currentline = "";
+
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read(); // Read a byte from client and print it
+        Serial.print(c);
+        currentline += c; // what the client sends to the ESP
+
+        if (c == '\n') {
+          // 2 newlines in a row -> HTTP client request
+          if (currentline.length() == 2) {
+            httpResponse(client);
+            break;
+          } else { // if only a newline, clear currentline
+            currentline = "";
+          }
+        } else if (c != '\r') {
+          currentline += c;
+        }
+     }
+  }
+
+  // close connection
+  client.stop();
+  Serial.println("Client disconnected");
+  Serial.println("");
+
+}
+
+void httpResponse(WiFiClient clt)
+{
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println("Connection: close");
+  client.println();
+
+  client.println("<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>");
+  client.println("<body><h1>ESP32 connected</h1></body></html>");
+}
+
+void wifiCloseAP()
+{
+}
+
+void tcpServerTask(void *pv_param)
+{
 }
